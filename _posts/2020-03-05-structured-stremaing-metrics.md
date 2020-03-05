@@ -66,7 +66,70 @@ To enable statsd, this is what the file should contain
 
 ```
 
-This will enable all built in metrics except from metrics from structured streaming. 
+This will enable all built in metrics except from metrics coming from structured streaming queries, so lets look at that next. 
 
 ## Enable metrics for structured streaming queries
 
+Lets start with yet another optional but in general recommended step, adding a queryName to the stream so it's not a random UUID that we get but rather a constant name we can easily track across restarts.
+
+```
+df.trigger(Trigger.ProcessingTime("5 seconds"))
+        .option("queryName", "important-query")
+        .start()
+```
+
+After that, we just need to enable structured streaming metrics in via the following config:
+
+```
+.config("spark.sql.streaming.metricsEnabled", "true")
+
+```
+
+Now we can get streaming query metrics to statsd (or any other sink we configure)
+
+As I already mentioned, it's not possible to extend spark's metric system before version 3.0 so we need to use a bit of cheat to hook into it.
+
+## Hack together a custom metrics source
+
+### The following is not a best practice but rather for the curious (and brave). Since spark will natively support this soon, it's not too bad of an idea I believe...   
+
+We need to implement and register an instance of the `Source` trait in the package `org.apache.spark.metrics.source`
+Since this trait is package private, we have to put our implementation under the same package.
+
+```
+package org.apache.spark.metrics.source
+import com.codahale.metrics.MetricRegistry
+import org.apache.spark.sql.SparkSession
+
+class CustomAppMetrics extends Source {
+  override def sourceName: String = "custom"
+
+  override val metricRegistry: MetricRegistry = new MetricRegistry
+
+  val customMetric = metricRegistry.timer(MetricRegistry.name("custom-time"))
+}
+
+object CustomAppMetrics {
+
+  def register(sparkSession: SparkSession) = {
+    val source = new CustomAppMetrics
+    sparkSession.sparkContext.env.metricsSystem
+      .registerSource(source)
+    source
+  }
+}
+
+```
+
+I included a helper method to register and return the metric source instance in one go. 
+
+Usage is simple when we are working with the driver but since spark doesn't have any initialization phase we would need to register this instance on each worker by some spark job like `sc.parallelize(0 to 100).forEach(register)`
+
+Additionaly, we need to have jetty-servlets on the compile class path for this to work... 
+`"org.eclipse.jetty" % "jetty-servlets" % "9.4.6.v20180619" % "provided"`
+
+Now we are ready to create more metrics and use them on the driver or workers or both and gain access to the built in reporting functionality of spark. 
+
+Links
+
+[Monitoring guide](https://spark.apache.org/docs/latest/monitoring.html)
