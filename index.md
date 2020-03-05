@@ -1,4 +1,4 @@
-<h1>My recent posts</h1>
+# My recent posts
 
 <ul>
   {% for post in site.posts %}
