@@ -82,7 +82,7 @@ As I already mentioned, it's not possible to extend spark's metric system before
 
 ## Hack together a custom metrics source
 
-### The following is not a best practice but rather for the curious (and brave). Since spark will natively support this soon, it's not too bad of an idea I believe...   
+### While the following definitely works, take it as an optional approach 
 
 We need to implement and register an instance of the `Source` trait in the package `org.apache.spark.metrics.source`
 Since this trait is package private, we have to put our implementation under the same package.
