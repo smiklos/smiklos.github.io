@@ -29,15 +29,12 @@ There a several ways to configure a spark application, just a few possiblities:
 
 1. via the default config file under `$SPARK_HOME/conf/spark-defaults.conf`
 2. as a config parameter passed to spark-submit, e.g.: `--conf spark.important.config.value=false`
-3. using the sparkContext's or the SparkSession builder's config method like `.config("spark.important.config.value", "false")
-`
+3. using the sparkContext's or the SparkSession builder's config method like `.config("spark.important.config.value", "false")`
+
 Now the namespace is basically the prefix to every metric sent to statsd, so it can be the same as our application name provided that we use a concise name without spaces.
 This step is optional, but I highly recommend it
 
-```
-.config("spark.metrics.namespace", "my-app")
-
-```
+`.config("spark.metrics.namespace", "my-app")`
 
 Then we need to configure the sinks. The config for them are loaded from a property file that can be found by default under 
 ```
@@ -46,10 +43,7 @@ $SPARK_HOME/conf/metrics.properties
 
 Alternatively we can point to another file with 
 
-```
-.config("spark.metrics.conf", "/home/centos/spark/config/metrics.properties")
-
-```
+`.config("spark.metrics.conf", "/home/centos/spark/config/metrics.properties")`
 
 To enable statsd, this is what the file should contain
 
@@ -80,10 +74,7 @@ df.trigger(Trigger.ProcessingTime("5 seconds"))
 
 After that, we just need to enable structured streaming metrics in via the following config:
 
-```
-.config("spark.sql.streaming.metricsEnabled", "true")
-
-```
+`.config("spark.sql.streaming.metricsEnabled", "true")`
 
 Now we can get streaming query metrics to statsd (or any other sink we configure)
 
