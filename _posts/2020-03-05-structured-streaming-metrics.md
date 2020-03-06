@@ -16,12 +16,12 @@ We will cover the following topics
 While spark exposes some metrics via api-s and other sinks, not all of them are turned on by default and there's no built in support to include custom metrics.
 Spark 3.0 changes this thanks to [this pr](https://github.com/apache/spark/pull/24901)
 
-We've been using some hand written library and a combination of accumulators to send metrics directly to our ELK stack and it was time to look into something better.
-These metrics were very limited in granularity and we could only send them from the drivers once the job either finished or a processing window completed.
-
-Let's see what needs to be configured in order to enable metric reporting for built in metrics to a statsd server
+Many articles exist describing how we can extract info out of streaming queryies via an instance of `StreamingQueryListener`
+but I haven't found any which talks about the built in support and don't require hand rolled code.
 
 ## Enable and configure metric reporters for statsd
+
+Let's see what needs to be configured in order to enable metric reporting for built in metrics to a statsd server
 
 First and foremost, we need to set up a namespace for the metrics, otherwise spark defaults to the random app id and that's rarely what we want.
 
@@ -124,3 +124,5 @@ Now we are ready to create more metrics and use them on the driver or workers or
 Links
 
 [Monitoring guide](https://spark.apache.org/docs/latest/monitoring.html)
+
+[Monitoring Streaming Queries](https://spark.apache.org/docs/latest/structured-streaming-programming-guide.html#reporting-metrics-using-dropwizard)
