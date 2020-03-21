@@ -2,5 +2,6 @@ theme: jekyll-theme-cayman
 title: Miklos's IT blog
 description: Here you can find articles explaining things I try to understand
 analytics_account: "UA-159958623-1"
+relative_permalinks: false
 
-exclude: ["script", "vendor", "bower.json", "Gemfile", "Gemfile.lock", "Rakefile", "readme.md", "package.json"]
+exclude: ["script", "vendor", ".idea", "bower.json", "Gemfile", "Gemfile.lock", "Rakefile", "readme.md", "package.json"]
