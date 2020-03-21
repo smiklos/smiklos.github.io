@@ -1,0 +1,12 @@
+.custom-page-header {
+  @extend .page-header;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: cover;
+  background-image: url("/assets/img/ui8VNo.jpg");
+}
+
+.custom-site-footer {
+  @extend .site-footer;
+  text-align: center;
+}

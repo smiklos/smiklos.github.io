@@ -3,5 +3,15 @@ title: sm1klos's blog
 description: Another dev writing about software...
 analytics_account: "UA-159958623-1"
 relative_permalinks: false
-
 exclude: ["script", "vendor", ".idea", "bower.json", "Gemfile", "Gemfile.lock", "Rakefile", "readme.md", "package.json"]
+
+plugins:
+  - jekyll-seo-tag
+
+sass:
+  style: :compressed
+  # Where you keep your scss files
+  sass_dir: assets/css/
+  # Where sass should look for other scss
+  load_paths:
+    - node_modules/
