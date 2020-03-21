@@ -1,6 +1,7 @@
 ---
 layout: default
 title: Exposing Structured Streaming metrics from Spark
+description: A look at spark's metric system
 ---
 
 ### Spark version: 2.4.4
