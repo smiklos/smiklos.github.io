@@ -6,7 +6,7 @@ description: A look at spark's metric system
 
 ### Spark version: 2.4.4
 
-We will cover the following topics
+We will cover the following topics:
 
 * Enable and configure metric reporters for statsd
 * Enable metrics for structured streaming queries
@@ -15,14 +15,14 @@ We will cover the following topics
 # The problem 
 
 While spark exposes some metrics via api-s and other sinks, not all of them are turned on by default and there's no built in support to include custom metrics.
-Spark 3.0 changes this thanks to [this pr](https://github.com/apache/spark/pull/24901)
+Spark 3.0 changes this thanks to [this pr](https://github.com/apache/spark/pull/24901).
 
 Many articles exist describing how we can extract info out of streaming queryies via an instance of `StreamingQueryListener`
 but I haven't found any which talks about the built in support and don't require hand rolled code.
 
 ## Enable and configure metric reporters for statsd
 
-Let's see what needs to be configured in order to enable metric reporting for built in metrics to a statsd server
+Let's see what needs to be configured in order to enable metric reporting for built in metrics to a statsd server.
 
 First and foremost, we need to set up a namespace for the metrics, otherwise spark defaults to the random app id and that's rarely what we want.
 
@@ -32,21 +32,21 @@ There a several ways to configure a spark application, just a few possiblities:
 2. as a config parameter passed to spark-submit, e.g.: `--conf spark.important.config.value=false`
 3. using the sparkContext's or the SparkSession builder's config method like `.config("spark.important.config.value", "false")`
 
-Now the namespace is basically the prefix to every metric sent to statsd, so it can be the same as our application name provided that we use a concise name without spaces.
-This step is optional, but I highly recommend it
+Now the namespace is basically the prefix for every metric sent to statsd, so the easiest is to use our application name provided that we use a concise name without spaces.
+This step is optional, but I highly recommend it.
 
 `.config("spark.metrics.namespace", "my-app")`
 
-Then we need to configure the sinks. The config for them are loaded from a property file that can be found by default under 
+Then we need to configure the sinks. The config for them are loaded from a property file that can be found by default under:
 ```
 $SPARK_HOME/conf/metrics.properties
 ```
 
-Alternatively we can point to another file with 
+Alternatively we can point to another file with:
 
 `.config("spark.metrics.conf", "/home/centos/spark/config/metrics.properties")`
 
-To enable statsd, this is what the file should contain
+To enable statsd, this is what the file should contain:
 
 ```
 # org.apache.spark.metrics.sink.StatsdSink
@@ -77,7 +77,7 @@ After that, we just need to enable structured streaming metrics in via the follo
 
 `.config("spark.sql.streaming.metricsEnabled", "true")`
 
-Now we can get streaming query metrics to statsd (or any other sink we configure)
+Now we can get streaming query metrics to statsd (or any other sink we configure).
 
 As I already mentioned, it's not possible to extend spark's metric system before version 3.0 so we need to use a bit of cheat to hook into it.
 
@@ -85,7 +85,7 @@ As I already mentioned, it's not possible to extend spark's metric system before
 
 ### While the following definitely works, take it as an optional approach 
 
-We need to implement and register an instance of the `Source` trait in the package `org.apache.spark.metrics.source`
+We need to implement and register an instance of the `Source` trait in the package `org.apache.spark.metrics.source`.
 Since this trait is package private, we have to put our implementation under the same package.
 
 ```
@@ -117,12 +117,12 @@ I included a helper method to register and return the metric source instance in 
 
 Usage is simple when we are working with the driver but since spark doesn't have any initialization phase we would need to register this instance on each worker by some spark job like `sc.parallelize(0 to 100).forEach(register)`
 
-Additionaly, we need to have jetty-servlets on the compile class path for this to work... 
+Additionally, we need to have jetty-servlets on the compile class path for this to work...
 `"org.eclipse.jetty" % "jetty-servlets" % "9.4.6.v20180619" % "provided"`
 
 Now we are ready to create more metrics and use them on the driver or workers or both and gain access to the built in reporting functionality of spark. 
 
-Links
+Links:
 
 [Monitoring guide](https://spark.apache.org/docs/latest/monitoring.html)
 
