@@ -1,9 +1,17 @@
 theme: jekyll-theme-cayman
 title: sm1klos's blog
 description: Another dev writing about software...
+tagline: Posts about apache spark, scala and kafka
+url: https://smiklos.github.io/
 analytics_account: "UA-159958623-1"
 relative_permalinks: false
 exclude: ["script", "vendor", ".idea", "bower.json", "Gemfile", "Gemfile.lock", "Rakefile", "readme.md", "package.json"]
+
+social:
+  name: Miklos Szots
+  links:
+    - https://www.linkedin.com/in/miklosszots/
+    - https://github.com/smiklos
 
 plugins:
   - jekyll-seo-tag

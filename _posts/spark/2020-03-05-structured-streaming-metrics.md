@@ -35,8 +35,9 @@ There a several ways to configure a spark application, just a few possiblities:
 Now the namespace is basically the prefix for every metric sent to statsd, so the easiest is to use our application name provided that we use a concise name without spaces.
 This step is optional, but I highly recommend it.
 
-`.config("spark.metrics.namespace", "my-app")`
-
+```scala
+.config("spark.metrics.namespace", "my-app")
+```
 Then we need to configure the sinks. The config for them are loaded from a property file that can be found by default under:
 ```
 $SPARK_HOME/conf/metrics.properties
@@ -44,8 +45,9 @@ $SPARK_HOME/conf/metrics.properties
 
 Alternatively we can point to another file with:
 
-`.config("spark.metrics.conf", "/home/centos/spark/config/metrics.properties")`
-
+```scala
+.config("spark.metrics.conf", "/home/centos/spark/config/metrics.properties")
+```
 To enable statsd, this is what the file should contain:
 
 ```
@@ -67,7 +69,7 @@ This will enable all built in metrics except from metrics coming from structured
 
 Lets start with yet another optional but in general recommended step, adding a queryName to the stream so it's not a random UUID that we get but rather a constant name we can easily track across restarts.
 
-```
+```scala
 df.trigger(Trigger.ProcessingTime("5 seconds"))
         .option("queryName", "important-query")
         .start()
@@ -75,8 +77,9 @@ df.trigger(Trigger.ProcessingTime("5 seconds"))
 
 After that, we just need to enable structured streaming metrics in via the following config:
 
-`.config("spark.sql.streaming.metricsEnabled", "true")`
-
+```scala
+.config("spark.sql.streaming.metricsEnabled", "true")
+```
 Now we can get streaming query metrics to statsd (or any other sink we configure).
 
 As I already mentioned, it's not possible to extend spark's metric system before version 3.0 so we need to use a bit of cheat to hook into it.
@@ -88,7 +91,7 @@ As I already mentioned, it's not possible to extend spark's metric system before
 We need to implement and register an instance of the `Source` trait in the package `org.apache.spark.metrics.source`.
 Since this trait is package private, we have to put our implementation under the same package.
 
-```
+```scala
 package org.apache.spark.metrics.source
 import com.codahale.metrics.MetricRegistry
 import org.apache.spark.sql.SparkSession
@@ -115,8 +118,10 @@ object CustomAppMetrics {
 
 I included a helper method to register and return the metric source instance in one go. 
 
-Usage is simple when we are working with the driver but since spark doesn't have any initialization phase we would need to register this instance on each worker by some spark job like `sc.parallelize(0 to 100).forEach(register)`
-
+Usage is simple when we are working with the driver but since spark doesn't have any initialization phase we would need to register this instance on each worker by some spark job like
+```scala
+sc.parallelize(0 to 100).forEach(register)
+```
 Additionally, we need to have jetty-servlets on the compile class path for this to work...
 `"org.eclipse.jetty" % "jetty-servlets" % "9.4.6.v20180619" % "provided"`
 
