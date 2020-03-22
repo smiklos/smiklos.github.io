@@ -1,5 +1,22 @@
 ---
 ---
 
+$header-heading-color: #e9ecf2 !default;
+
+
 @import "{{ site.theme }}";
-@import "custom";
+
+.site-footer {
+  text-align: center;
+}
+
+.page-header {
+   text-align: center;
+   background-position: center;
+   background-repeat: no-repeat;
+   background-size: cover;
+   background-image: url("/assets/img/ui8VNo720.jpg");
+
+
+}
+

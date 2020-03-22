@@ -11,10 +11,10 @@
     <meta name="theme-color" content="#157878">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <link rel="stylesheet" href="{{ '/assets/css/style.css?v=' | append: site.github.build_revision | relative_url }}">
-    <link rel="shortcut icon" href="{{ '/assets/img/favicon.png' | relative_url }}" type="image/x-icon">
+    <link rel="shortcut icon" href="{{ '/assets/img/favicon.ico' | relative_url }}" type="image/x-icon">
 </head>
 <body>
-<header class="custom-page-header" role="banner">
+<header class="page-header" role="banner">
     <h1 class="project-name">{{ page.title | default: site.title | default: site.github.repository_name }}</h1>
     <h2 class="project-tagline">{{ page.description | default: site.description | default: site.github.project_tagline }}</h2>
 </header>
@@ -22,7 +22,7 @@
 <main id="content" class="main-content" role="main">
     {{ content }}
 
-    <footer class="custom-site-footer">
+    <footer class="site-footer">
         <span class="site-footer-owner">© 2020 Miklos Szots. All rights reserved.</span>
     </footer>
 </main>
