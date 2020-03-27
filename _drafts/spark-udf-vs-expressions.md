@@ -1,8 +1,9 @@
 ---
-layout: default
+layout: post
 title: Spark UDF vs sql expressions
 description: Performance characteristics and nullability when working with UDFs
 ---
+
 
 1. Introduction to spark udf and expressions
 2. spark internal storage format ints, utf8, unsafe
@@ -19,7 +20,7 @@ In this post we will look at the internals and compare udfs against built in nat
 Wi will look at the following topics:
 
 * How udfs are treated by spark when it comes to code generation
-* How to achieve isNull predicate pushdown to parquet
+* How to achieve isNull predicate pushdown to parquet or other file sources
 * When should we implement native functions
 
 
@@ -37,8 +38,6 @@ We will look at this in more detail when looking at the overhead associated with
 
 The following examples were based on spark version 2.4.4.
 
-Lets start by comparing the output of code generation for udfs and built in functions.
-The following code creates a dataframe with two columns, 'num' containing the value 42 and 'num_plus_one' is whatever num is plus 1.
 
 ```scala
  val df = spark.sparkContext
@@ -118,5 +117,5 @@ As we can see, there's quite a lot more going on here. Lets talk about what this
 * We can see that in case our udf returns a null value, we get the default value of -1 assigned to the result.
 * From writing the values out, the only difference is the call to `.zeroOutNullBytes()`. This method indicates that it's possible to put null values to the buffer and so it's an extra setup to be done after resetting the buffer.
 
-From the above we can clearly see that there's an overhead of input value conversion, primitive type to boxed type casting and also additional null checks and nullability related cleanups.
+From the above we can clearly see that there's an overhead of input value conversion, primitive type to boxed type casting and additional null checks and nullability related cleanups.
 
