@@ -39,6 +39,9 @@ author: Miklos Szots
 email: szotsmiklos@gmail.com
 avatar: assets/img/avatar48.jpg
 
+# The following settings are NECESSARY for the Prologue theme to run:
+theme: jekyll-theme-prologue
+collections: [sections]
 # You'll want to customize url and baseurl for your own site:
 baseurl: "/blog" # the subpath of your site, e.g. /blog
 url: "https://smiklos.github.io" # the base hostname & protocol for your site
@@ -57,10 +60,6 @@ dribbble_url:
 
 # Google Analytics Tracking ID goes here:
 google_analytics: "UA-159958623-1"
-
-# The following settings are NECESSARY for the Prologue theme to run:
-remote_theme: chrisbobbe/jekyll-theme-prologue
-collections: [sections]
 
 exclude: ["script", "vendor", ".idea", "bower.json", "Gemfile", "Gemfile.lock", "Rakefile", "readme.md", "package.json"]
 
