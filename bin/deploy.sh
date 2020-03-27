@@ -26,7 +26,6 @@ git push -f -q origin gh-pages
 
 # Move back to previous branch.
 git checkout -
-yarn install --modules-folder ./_assets/yarn
 
 echo "Deployed Successfully!"
 
