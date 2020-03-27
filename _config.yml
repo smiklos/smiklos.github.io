@@ -64,3 +64,8 @@ google_analytics: "UA-159958623-1"
 exclude: ["script", "vendor", ".idea", "bower.json", "Gemfile", "Gemfile.lock", "Rakefile", "readme.md", "package.json"]
 
 highligher: rouge
+
+
+plugins:
+  - jekyll-remote-theme
+  - jekyll-feed
