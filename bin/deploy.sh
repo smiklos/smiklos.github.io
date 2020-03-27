@@ -7,7 +7,7 @@ set -e
 
 echo "Started deploying"
 
-# Checkout master branch.
+
 git checkout master
 
 # Build site.
@@ -22,11 +22,10 @@ rm -R _site/
 # Push to master.
 git add -fA
 git commit --allow-empty -m "$(git log -1 --pretty=%B) [ci skip]"
-git push -f -q origin gh-pages
+git push -f -q origin master
 
 # Move back to previous branch.
 git checkout -
-yarn install --modules-folder ./_assets/yarn
 
 echo "Deployed Successfully!"
 
