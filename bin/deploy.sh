@@ -7,8 +7,8 @@ set -e
 
 echo "Started deploying"
 
-# Checkout gh-pages branch.
-git checkout -b gh-pages
+# Checkout master branch.
+git checkout master
 
 # Build site.
 
