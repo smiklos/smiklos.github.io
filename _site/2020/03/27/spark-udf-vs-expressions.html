@@ -1,0 +1,199 @@
+<!DOCTYPE HTML>
+<!--
+Prologue by HTML5 UP
+html5up.net | @ajlkn
+Free for personal and commercial use under the CCA 3.0 license (html5up.net/license)
+Jekyll integration by Chris Bobbe | chrisbobbe.github.io
+-->
+<html><head><!-- Robots -->
+  <meta name="robots" content="index, follow" /><link rel="canonical" href="http://localhost:4000/blog/2020/03/27/spark-udf-vs-expressions.html" /><!-- Title, description, author --><title>Spark UDF vs sql expressions | Miklos&#39;s blog - sc.parallelize(blogs)</title>
+  <meta name="description" content="Performance characteristics and nullability when working with UDFs" />
+  <meta name="author" content="Miklos Szots" />
+  
+  <!-- Open Graph -->
+  <meta property="og:title" content="Spark UDF vs sql expressions | Miklos&#39;s blog - sc.parallelize(blogs)" />
+  <meta property="og:type" content="website" />
+  <meta property="og:image" content="http://localhost:4000/blog/assets/img/avatar48.jpg" />
+  <meta property="og:url" content="http://localhost:4000/blog/2020/03/27/spark-udf-vs-expressions.html" />
+  <meta property="og:site_name" content="Miklos&#39;s blog" />
+  <meta property="og:description" content="Performance characteristics and nullability when working with UDFs" />
+  
+  <!-- Styles -->
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!--[if lte IE 8]><script src="/blog/assets/js/ie/html5shiv.js" defer></script><![endif]-->
+  <link rel="stylesheet" href="/blog/assets/css/main.css" />
+  <!--[if lte IE 8]><link rel="stylesheet" href="/blog/assets/css/ie8.css" /><![endif]-->
+  <!--[if lte IE 9]><link rel="stylesheet" href="/blog/assets/css/ie9.css" /><![endif]-->
+  <link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.1.0/css/all.css">
+
+  <!-- Scripts -->
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.3/jquery.min.js" defer></script>
+  <script src="/blog/assets/js/jquery.scrolly.min.js" defer></script>
+  <script src="/blog/assets/js/jquery.scrollzer.min.js" defer></script>
+  <script src="/blog/assets/js/skel.min.js" defer></script>
+  <script src="/blog/assets/js/util.js" defer></script>
+  <!--[if lte IE 8]><script src="/blog/assets/js/ie/respond.min.js" defer></script><![endif]-->
+  <script src="/blog/assets/js/main.js" defer></script>
+
+</head><body><!-- Header -->
+<div id="header">
+  <div class="top"><!-- Logo -->
+<div id="logo">
+  <a href="http://localhost:4000/blog/" id="home-link">
+    <span class="image avatar48"><img src="/blog/assets/img/avatar48.jpg" alt="Avatar of Miklos Szots" /></span>
+    <h1 id="title">Miklos's blog</h1>
+    <p>sc.parallelize(blogs)</p>
+  </a>
+</div><!-- Nav -->
+<nav id="nav">
+  <ul><li><a href="http://localhost:4000/blog/" id="127-0-0-1-link">
+            <span class="icon fa-home">127.0.0.1</span>
+          </a></li><li><a href="http://localhost:4000/blog/blog.html" id="posts-link">
+            <span class="icon fa-pencil-alt">Posts</span>
+          </a></li><li><a href="http://localhost:4000/blog/about.html" id="about-link">
+            <span class="icon fa-link">About</span>
+          </a></li></ul>
+</nav></div>
+  <div class="bottom"><!-- Social Icons -->
+<ul class="icons"><li><a href="https://www.linkedin.com/in/miklosszots/" class="icon-b fa-linkedin-in"><span class="label">LinkedIn</span></a></li><li><a href="https://github.com/smiklos" class="icon-b fa-github"><span class="label">GitHub</span></a></li><li><a href="mailto:szotsmiklos@gmail.com" class="icon fa-envelope"><span class="label">Email</span></a></li></ul>
+</div>
+</div>
+<!-- Main -->
+<div id="main">
+	<!-- Post -->
+	<article class="shade-two">
+	  <div class="container">
+			<header>
+				<h2>Spark UDF vs sql expressions</h2>
+				<p>27 March 2020</p>
+			</header><ol>
+  <li>Introduction to spark udf and expressions</li>
+  <li>spark internal storage format ints, utf8, unsafe</li>
+  <li>Generated code analysis of udf vs expressions on int + 1</li>
+  <li>Generated code analysis of udf vs expressions on string + lit(“ hi”)</li>
+  <li>UDf vs expressions conclusion?</li>
+  <li>Udf nullability and predicate pushdown. Udf null input protection</li>
+  <li>Possible improvements -&gt; Specialization implemented for codegen. Check also the input types, not just the udf function inputs</li>
+  <li>Conclusion and recommendations for spark udf and expressions. Don’t use it unless you want to convert from internal row straight to something</li>
+</ol>
+
+<p>There are plenty of articles explaining how to use udfs in spark and what benefits/drawbacks they have over built-in/native functions.
+In this post we will look at the internals and compare udfs against built in native functions from an implementation point of view.
+Wi will look at the following topics:</p>
+
+<ul>
+  <li>How udfs are treated by spark when it comes to code generation</li>
+  <li>How to achieve isNull predicate pushdown to parquet or other file sources</li>
+  <li>When should we implement native functions</li>
+</ul>
+
+<h1 id="a-short-101-on-spark-sql-internals">A short 101 on spark sql internals</h1>
+
+<p>When spark sql executes a query, it takes all the necessary computation that we have declared in our program
+and after some optimization, it will end up generating java code out of it. This is done to better utilize the CPU.
+Additionally, our data is not stored in memory as regular java/scala objects are but rather kept in an efficient compacted way
+to reduce memory usage and improve CPU caching. This means that an ideal program will try to keep this data in spark’s format for as long as possible,
+otherwise intermediate data representations are needed to convert back and forth between java/scala types and spark’s internal format.
+We will look at this in more detail when looking at the overhead associated with udfs.</p>
+
+<h1 id="comparing-udf-codegen-behavior-against-native-functions">Comparing UDF codegen behavior against native functions</h1>
+
+<p>The following examples were based on spark version 2.4.4.</p>
+
+<div class="language-scala highlighter-rouge"><div class="highlight"><pre class="highlight"><code> <span class="k">val</span> <span class="nv">df</span> <span class="k">=</span> <span class="nv">spark</span><span class="o">.</span><span class="py">sparkContext</span>
+    <span class="o">.</span><span class="py">parallelize</span><span class="o">(</span><span class="nc">Seq</span><span class="o">(</span><span class="mi">42</span><span class="o">))</span>
+    <span class="o">.</span><span class="py">toDF</span><span class="o">(</span><span class="s">"num"</span><span class="o">)</span>
+    <span class="o">.</span><span class="py">withColumn</span><span class="o">(</span><span class="s">"num_plus_one"</span><span class="o">,</span> <span class="ss">'num.</span><span class="nf">plus</span><span class="o">(</span><span class="mi">1</span><span class="o">))</span>
+
+  <span class="nv">df</span><span class="o">.</span><span class="py">queryExecution</span><span class="o">.</span><span class="py">debug</span><span class="o">.</span><span class="py">codegen</span><span class="o">()</span>
+</code></pre></div></div>
+
+<p>The above snippet will generate roughly 60 lines of code, but will focus on the actual transformation for brevity.</p>
+
+<div class="language-java highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cm">/* 026 */</span>   <span class="kd">private</span> <span class="kt">void</span> <span class="nf">project_doConsume_0</span><span class="o">(</span><span class="kt">int</span> <span class="n">project_expr_0_0</span><span class="o">)</span> <span class="kd">throws</span> <span class="n">java</span><span class="o">.</span><span class="na">io</span><span class="o">.</span><span class="na">IOException</span> <span class="o">{</span>
+<span class="cm">/* 027 */</span>     <span class="kt">int</span> <span class="n">project_value_2</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span><span class="o">;</span>
+<span class="cm">/* 028 */</span>     <span class="n">project_value_2</span> <span class="o">=</span> <span class="n">project_expr_0_0</span> <span class="o">+</span> <span class="mi">1</span><span class="o">;</span>
+<span class="cm">/* 029 */</span>     <span class="n">serializefromobject_mutableStateArray_0</span><span class="o">[</span><span class="mi">2</span><span class="o">].</span><span class="na">reset</span><span class="o">();</span>
+<span class="cm">/* 030 */</span>
+<span class="cm">/* 031 */</span>     <span class="n">serializefromobject_mutableStateArray_0</span><span class="o">[</span><span class="mi">2</span><span class="o">].</span><span class="na">write</span><span class="o">(</span><span class="mi">0</span><span class="o">,</span> <span class="n">project_expr_0_0</span><span class="o">);</span>
+<span class="cm">/* 032 */</span>
+<span class="cm">/* 033 */</span>     <span class="n">serializefromobject_mutableStateArray_0</span><span class="o">[</span><span class="mi">2</span><span class="o">].</span><span class="na">write</span><span class="o">(</span><span class="mi">1</span><span class="o">,</span> <span class="n">project_value_2</span><span class="o">);</span>
+<span class="cm">/* 034 */</span>     <span class="n">append</span><span class="o">((</span><span class="n">serializefromobject_mutableStateArray_0</span><span class="o">[</span><span class="mi">2</span><span class="o">].</span><span class="na">getRow</span><span class="o">()));</span>
+<span class="cm">/* 035 */</span>
+<span class="cm">/* 036 */</span>   <span class="o">}</span>
+</code></pre></div></div>
+
+<p>From the above snippet we can derive a couple of things:</p>
+<ul>
+  <li><code class="language-plaintext highlighter-rouge">project_expr_0_0</code> is the value of the field ‘num’</li>
+  <li>There are no null checks since we work with primitive values. The result of our function can’t be null therefor</li>
+  <li>After the computation is done, both <code class="language-plaintext highlighter-rouge">num</code> and <code class="language-plaintext highlighter-rouge">num_plus_one</code> gets written to the output row</li>
+</ul>
+
+<p>Now lets see what we get when we implement the same functionality with a udf.</p>
+
+<div class="language-scala highlighter-rouge"><div class="highlight"><pre class="highlight"><code> <span class="k">val</span> <span class="nv">df</span> <span class="k">=</span> <span class="nv">spark</span><span class="o">.</span><span class="py">sparkContext</span>
+    <span class="o">.</span><span class="py">parallelize</span><span class="o">(</span><span class="nc">Seq</span><span class="o">(</span><span class="mi">42</span><span class="o">))</span>
+    <span class="o">.</span><span class="py">toDF</span><span class="o">(</span><span class="s">"num"</span><span class="o">)</span>
+    <span class="o">.</span><span class="py">withColumn</span><span class="o">(</span><span class="s">"num_plus_one"</span><span class="o">,</span> <span class="nf">udf</span><span class="o">((</span><span class="n">in</span><span class="k">:</span> <span class="kt">Int</span><span class="o">)</span> <span class="k">=&gt;</span> <span class="n">in</span> <span class="o">+</span> <span class="mi">1</span><span class="o">).</span><span class="py">apply</span><span class="o">(</span><span class="ss">'num)</span><span class="o">)</span>
+
+  <span class="nv">df</span><span class="o">.</span><span class="py">queryExecution</span><span class="o">.</span><span class="py">debug</span><span class="o">.</span><span class="py">codegen</span><span class="o">()</span>
+</code></pre></div></div>
+
+<p>And the corresponding generated code:</p>
+
+<div class="language-java highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cm">/* 026 */</span>   <span class="kd">private</span> <span class="kt">void</span> <span class="nf">project_doConsume_0</span><span class="o">(</span><span class="kt">int</span> <span class="n">project_expr_0_0</span><span class="o">)</span> <span class="kd">throws</span> <span class="n">java</span><span class="o">.</span><span class="na">io</span><span class="o">.</span><span class="na">IOException</span> <span class="o">{</span>
+<span class="cm">/* 027 */</span>     <span class="nc">Object</span> <span class="n">project_arg_0</span> <span class="o">=</span> <span class="kc">false</span> <span class="o">?</span> <span class="kc">null</span> <span class="o">:</span> <span class="o">((</span><span class="n">scala</span><span class="o">.</span><span class="na">Function1</span><span class="o">[])</span> <span class="n">references</span><span class="o">[</span><span class="mi">0</span><span class="o">]</span> <span class="cm">/* converters */</span><span class="o">)[</span><span class="mi">0</span><span class="o">].</span><span class="na">apply</span><span class="o">(</span><span class="n">project_expr_0_0</span><span class="o">);</span>
+<span class="cm">/* 028 */</span>
+<span class="cm">/* 029 */</span>     <span class="nc">Integer</span> <span class="n">project_result_0</span> <span class="o">=</span> <span class="kc">null</span><span class="o">;</span>
+<span class="cm">/* 030 */</span>     <span class="k">try</span> <span class="o">{</span>
+<span class="cm">/* 031 */</span>       <span class="n">project_result_0</span> <span class="o">=</span> <span class="o">(</span><span class="nc">Integer</span><span class="o">)((</span><span class="n">scala</span><span class="o">.</span><span class="na">Function1</span><span class="o">[])</span> <span class="n">references</span><span class="o">[</span><span class="mi">0</span><span class="o">]</span> <span class="cm">/* converters */</span><span class="o">)[</span><span class="mi">1</span><span class="o">].</span><span class="na">apply</span><span class="o">(((</span><span class="n">scala</span><span class="o">.</span><span class="na">Function1</span><span class="o">)</span> <span class="n">references</span><span class="o">[</span><span class="mi">2</span><span class="o">]</span> <span class="cm">/* udf */</span><span class="o">).</span><span class="na">apply</span><span class="o">(</span><span class="n">project_arg_0</span><span class="o">));</span>
+<span class="cm">/* 032 */</span>     <span class="o">}</span> <span class="k">catch</span> <span class="o">(</span><span class="nc">Exception</span> <span class="n">e</span><span class="o">)</span> <span class="o">{</span>
+<span class="cm">/* 033 */</span>       <span class="k">throw</span> <span class="k">new</span> <span class="n">org</span><span class="o">.</span><span class="na">apache</span><span class="o">.</span><span class="na">spark</span><span class="o">.</span><span class="na">SparkException</span><span class="o">(((</span><span class="n">java</span><span class="o">.</span><span class="na">lang</span><span class="o">.</span><span class="na">String</span><span class="o">)</span> <span class="n">references</span><span class="o">[</span><span class="mi">1</span><span class="o">]</span> <span class="cm">/* errMsg */</span><span class="o">),</span> <span class="n">e</span><span class="o">);</span>
+<span class="cm">/* 034 */</span>     <span class="o">}</span>
+<span class="cm">/* 035 */</span>
+<span class="cm">/* 036 */</span>     <span class="kt">boolean</span> <span class="n">project_isNull_2</span> <span class="o">=</span> <span class="n">project_result_0</span> <span class="o">==</span> <span class="kc">null</span><span class="o">;</span>
+<span class="cm">/* 037 */</span>     <span class="kt">int</span> <span class="n">project_value_2</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span><span class="o">;</span>
+<span class="cm">/* 038 */</span>     <span class="k">if</span> <span class="o">(!</span><span class="n">project_isNull_2</span><span class="o">)</span> <span class="o">{</span>
+<span class="cm">/* 039 */</span>       <span class="n">project_value_2</span> <span class="o">=</span> <span class="n">project_result_0</span><span class="o">;</span>
+<span class="cm">/* 040 */</span>     <span class="o">}</span>
+<span class="cm">/* 041 */</span>     <span class="n">serializefromobject_mutableStateArray_0</span><span class="o">[</span><span class="mi">2</span><span class="o">].</span><span class="na">reset</span><span class="o">();</span>
+<span class="cm">/* 042 */</span>
+<span class="cm">/* 043 */</span>     <span class="n">serializefromobject_mutableStateArray_0</span><span class="o">[</span><span class="mi">2</span><span class="o">].</span><span class="na">zeroOutNullBytes</span><span class="o">();</span>
+<span class="cm">/* 044 */</span>
+<span class="cm">/* 045 */</span>     <span class="n">serializefromobject_mutableStateArray_0</span><span class="o">[</span><span class="mi">2</span><span class="o">].</span><span class="na">write</span><span class="o">(</span><span class="mi">0</span><span class="o">,</span> <span class="n">project_expr_0_0</span><span class="o">);</span>
+<span class="cm">/* 046 */</span>
+<span class="cm">/* 047 */</span>     <span class="n">serializefromobject_mutableStateArray_0</span><span class="o">[</span><span class="mi">2</span><span class="o">].</span><span class="na">write</span><span class="o">(</span><span class="mi">1</span><span class="o">,</span> <span class="n">project_value_2</span><span class="o">);</span>
+<span class="cm">/* 048 */</span>     <span class="n">append</span><span class="o">((</span><span class="n">serializefromobject_mutableStateArray_0</span><span class="o">[</span><span class="mi">2</span><span class="o">].</span><span class="na">getRow</span><span class="o">()));</span>
+<span class="cm">/* 049 */</span>
+<span class="cm">/* 050 */</span>   <span class="o">}</span>
+</code></pre></div></div>
+
+<p>As we can see, there’s quite a lot more going on here. Lets talk about what this piece of code does.</p>
+
+<ul>
+  <li>First there’s a conversion applied to the input value. In the case of a single Int, this is redundant as our udf takes the same type as input.</li>
+  <li>Next, our udf gets called with the converted value as input. We can see that an explicit casting to boxed type takes place.</li>
+  <li>We can see that in case our udf returns a null value, we get the default value of -1 assigned to the result.</li>
+  <li>From writing the values out, the only difference is the call to <code class="language-plaintext highlighter-rouge">.zeroOutNullBytes()</code>. This method indicates that it’s possible to put null values to the buffer and so it’s an extra setup to be done after resetting the buffer.</li>
+</ul>
+
+<p>From the above we can clearly see that there’s an overhead of input value conversion, primitive type to boxed type casting and additional null checks and nullability related cleanups.</p>
+
+</div>
+	</article>
+</div><!-- Footer -->
+<div id="footer">
+  
+  <!-- Copyright -->
+  <ul class="copyright">
+    
+      <li>&copy;Miklos's blog. All rights reserved.</li>
+    
+    <li>Design: <a href="http://html5up.net">HTML5 UP</a></li>
+    <li>Jekyll integration: <a href="https://chrisbobbe.github.io/">Chris Bobbe</a></li>
+  </ul>
+  
+</div></body>
+</html>

@@ -40,7 +40,7 @@ email: szotsmiklos@gmail.com
 avatar: assets/img/avatar48.jpg
 
 # The following settings are NECESSARY for the Prologue theme to run:
-remote_theme: chrisbobbe/jekyll-theme-prologue
+remote_theme: "smiklos/jekyll-theme-prologue"
 collections: [sections]
 # You'll want to customize url and baseurl for your own site:
 baseurl: "/blog" # the subpath of your site, e.g. /blog

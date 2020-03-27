@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" ><generator uri="https://jekyllrb.com/" version="3.8.5">Jekyll</generator><link href="http://localhost:4000/blog/feed.xml" rel="self" type="application/atom+xml" /><link href="http://localhost:4000/blog/" rel="alternate" type="text/html" /><updated>2020-03-27T15:15:02+01:00</updated><id>http://localhost:4000/blog/feed.xml</id><title type="html">Miklos’s blog</title><subtitle>Here I blog about software. I'm aiming to provide a deeper understanding into certain topics but trying to keep it entertaining and consumable for the wider audience</subtitle><author><name>Miklos Szots</name></author><entry><title type="html">Exposing Structured Streaming metrics from Spark</title><link href="http://localhost:4000/blog/2020/03/05/structured-streaming-metrics.html" rel="alternate" type="text/html" title="Exposing Structured Streaming metrics from Spark" /><published>2020-03-05T00:00:00+01:00</published><updated>2020-03-05T00:00:00+01:00</updated><id>http://localhost:4000/blog/2020/03/05/structured-streaming-metrics</id><content type="html" xml:base="http://localhost:4000/blog/2020/03/05/structured-streaming-metrics.html">&lt;h3 id=&quot;spark-version-244&quot;&gt;Spark version: 2.4.4&lt;/h3&gt;
+
+&lt;p&gt;We will cover the following topics:&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;Enable and configure metric reporters for statsd&lt;/li&gt;
+  &lt;li&gt;Enable metrics for structured streaming queries&lt;/li&gt;
+  &lt;li&gt;Hack together a custom metrics source&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h1 id=&quot;the-problem&quot;&gt;The problem&lt;/h1&gt;
+
+&lt;p&gt;While spark exposes some metrics via api-s and other sinks, not all of them are turned on by default and there’s no built in support to include custom metrics.
+Spark 3.0 changes this thanks to &lt;a href=&quot;https://github.com/apache/spark/pull/24901&quot;&gt;this pr&lt;/a&gt;.&lt;/p&gt;
+
+&lt;p&gt;Many articles exist describing how we can extract info out of streaming queryies via an instance of &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;StreamingQueryListener&lt;/code&gt;
+but I haven’t found any which talks about the built in support and don’t require hand rolled code.&lt;/p&gt;
+
+&lt;h2 id=&quot;enable-and-configure-metric-reporters-for-statsd&quot;&gt;Enable and configure metric reporters for statsd&lt;/h2&gt;
+
+&lt;p&gt;Let’s see what needs to be configured in order to enable metric reporting for built in metrics to a statsd server.&lt;/p&gt;
+
+&lt;p&gt;First and foremost, we need to set up a namespace for the metrics, otherwise spark defaults to the random app id and that’s rarely what we want.&lt;/p&gt;
+
+&lt;p&gt;There a several ways to configure a spark application, just a few possiblities:&lt;/p&gt;
+
+&lt;ol&gt;
+  &lt;li&gt;via the default config file under &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;$SPARK_HOME/conf/spark-defaults.conf&lt;/code&gt;&lt;/li&gt;
+  &lt;li&gt;as a config parameter passed to spark-submit, e.g.: &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;--conf spark.important.config.value=false&lt;/code&gt;&lt;/li&gt;
+  &lt;li&gt;using the sparkContext’s or the SparkSession builder’s config method like &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;.config(&quot;spark.important.config.value&quot;, &quot;false&quot;)&lt;/code&gt;&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;p&gt;Now the namespace is basically the prefix for every metric sent to statsd, so the easiest is to use our application name provided that we use a concise name without spaces.
+This step is optional, but I highly recommend it.&lt;/p&gt;
+
+&lt;div class=&quot;language-scala highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;py&quot;&gt;config&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;spark.metrics.namespace&quot;&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&quot;my-app&quot;&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+&lt;p&gt;Then we need to configure the sinks. The config for them are loaded from a property file that can be found by default under:&lt;/p&gt;
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;$SPARK_HOME/conf/metrics.properties
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Alternatively we can point to another file with:&lt;/p&gt;
+
+&lt;div class=&quot;language-scala highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;py&quot;&gt;config&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;spark.metrics.conf&quot;&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&quot;/home/centos/spark/config/metrics.properties&quot;&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+&lt;p&gt;To enable statsd, this is what the file should contain:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;# org.apache.spark.metrics.sink.StatsdSink
+#   Name:     Default:      Description:
+#   host      127.0.0.1     Hostname or IP of StatsD server
+#   port      8125          Port of StatsD server
+#   period    10            Poll period
+#   unit      seconds       Units of poll period
+#   prefix    EMPTY STRING  Prefix to prepend to metric name
+
+*.sink.statsd.class=org.apache.spark.metrics.sink.StatsdSink
+
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;This will enable all built in metrics except from metrics coming from structured streaming queries, so lets look at that next.&lt;/p&gt;
+
+&lt;h2 id=&quot;enable-metrics-for-structured-streaming-queries&quot;&gt;Enable metrics for structured streaming queries&lt;/h2&gt;
+
+&lt;p&gt;Lets start with yet another optional but in general recommended step, adding a queryName to the stream so it’s not a random UUID that we get but rather a constant name we can easily track across restarts.&lt;/p&gt;
+
+&lt;div class=&quot;language-scala highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;nv&quot;&gt;df&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;py&quot;&gt;trigger&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;Trigger&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;py&quot;&gt;ProcessingTime&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;5 seconds&quot;&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;))&lt;/span&gt;
+        &lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;py&quot;&gt;option&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;queryName&quot;&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&quot;important-query&quot;&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt;
+        &lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;py&quot;&gt;start&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;()&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;After that, we just need to enable structured streaming metrics in via the following config:&lt;/p&gt;
+
+&lt;div class=&quot;language-scala highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;py&quot;&gt;config&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;spark.sql.streaming.metricsEnabled&quot;&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&quot;true&quot;&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+&lt;p&gt;Now we can get streaming query metrics to statsd (or any other sink we configure).&lt;/p&gt;
+
+&lt;p&gt;As I already mentioned, it’s not possible to extend spark’s metric system before version 3.0 so we need to use a bit of cheat to hook into it.&lt;/p&gt;
+
+&lt;h2 id=&quot;hack-together-a-custom-metrics-source&quot;&gt;Hack together a custom metrics source&lt;/h2&gt;
+
+&lt;h3 id=&quot;while-the-following-definitely-works-take-it-as-an-optional-approach&quot;&gt;While the following definitely works, take it as an optional approach&lt;/h3&gt;
+
+&lt;p&gt;We need to implement and register an instance of the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Source&lt;/code&gt; trait in the package &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;org.apache.spark.metrics.source&lt;/code&gt;.
+Since this trait is package private, we have to put our implementation under the same package.&lt;/p&gt;
+
+&lt;div class=&quot;language-scala highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;k&quot;&gt;package&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;org.apache.spark.metrics.source&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;import&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;com.codahale.metrics.MetricRegistry&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;import&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;org.apache.spark.sql.SparkSession&lt;/span&gt;
+
+&lt;span class=&quot;k&quot;&gt;class&lt;/span&gt; &lt;span class=&quot;nc&quot;&gt;CustomAppMetrics&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;extends&lt;/span&gt; &lt;span class=&quot;nc&quot;&gt;Source&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;{&lt;/span&gt;
+  &lt;span class=&quot;k&quot;&gt;override&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;def&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;sourceName&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;kt&quot;&gt;String&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&quot;custom&quot;&lt;/span&gt;
+
+  &lt;span class=&quot;k&quot;&gt;override&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;val&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;metricRegistry&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;kt&quot;&gt;MetricRegistry&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;new&lt;/span&gt; &lt;span class=&quot;nc&quot;&gt;MetricRegistry&lt;/span&gt;
+
+  &lt;span class=&quot;k&quot;&gt;val&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;customMetric&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;metricRegistry&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;py&quot;&gt;timer&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;MetricRegistry&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;py&quot;&gt;name&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;custom-time&quot;&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;))&lt;/span&gt;
+&lt;span class=&quot;o&quot;&gt;}&lt;/span&gt;
+
+&lt;span class=&quot;k&quot;&gt;object&lt;/span&gt; &lt;span class=&quot;nc&quot;&gt;CustomAppMetrics&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;{&lt;/span&gt;
+
+  &lt;span class=&quot;k&quot;&gt;def&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;register&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;sparkSession&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;kt&quot;&gt;SparkSession&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;val&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;source&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;new&lt;/span&gt; &lt;span class=&quot;nc&quot;&gt;CustomAppMetrics&lt;/span&gt;
+    &lt;span class=&quot;nv&quot;&gt;sparkSession&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;py&quot;&gt;sparkContext&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;py&quot;&gt;env&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;py&quot;&gt;metricsSystem&lt;/span&gt;
+      &lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;py&quot;&gt;registerSource&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;source&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;source&lt;/span&gt;
+  &lt;span class=&quot;o&quot;&gt;}&lt;/span&gt;
+&lt;span class=&quot;o&quot;&gt;}&lt;/span&gt;
+
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;I included a helper method to register and return the metric source instance in one go.&lt;/p&gt;
+
+&lt;p&gt;Usage is simple when we are working with the driver but since spark doesn’t have any initialization phase we would need to register this instance on each worker by some spark job like&lt;/p&gt;
+&lt;div class=&quot;language-scala highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;nv&quot;&gt;sc&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;py&quot;&gt;parallelize&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;to&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;100&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;).&lt;/span&gt;&lt;span class=&quot;py&quot;&gt;forEach&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;register&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;)&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+&lt;p&gt;Additionally, we need to have jetty-servlets on the compile class path for this to work…
+&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;&quot;org.eclipse.jetty&quot; % &quot;jetty-servlets&quot; % &quot;9.4.6.v20180619&quot; % &quot;provided&quot;&lt;/code&gt;&lt;/p&gt;
+
+&lt;p&gt;Now we are ready to create more metrics and use them on the driver or workers or both and gain access to the built in reporting functionality of spark.&lt;/p&gt;
+
+&lt;p&gt;Links:&lt;/p&gt;
+
+&lt;p&gt;&lt;a href=&quot;https://spark.apache.org/docs/latest/monitoring.html&quot;&gt;Monitoring guide&lt;/a&gt;&lt;/p&gt;
+
+&lt;p&gt;&lt;a href=&quot;https://spark.apache.org/docs/latest/structured-streaming-programming-guide.html#reporting-metrics-using-dropwizard&quot;&gt;Monitoring Streaming Queries&lt;/a&gt;&lt;/p&gt;</content><author><name>Miklos Szots</name></author><category term="spark" /><category term="metrics" /><summary type="html">Spark version: 2.4.4</summary></entry></feed>

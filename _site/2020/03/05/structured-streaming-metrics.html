@@ -1,0 +1,209 @@
+<!DOCTYPE HTML>
+<!--
+Prologue by HTML5 UP
+html5up.net | @ajlkn
+Free for personal and commercial use under the CCA 3.0 license (html5up.net/license)
+Jekyll integration by Chris Bobbe | chrisbobbe.github.io
+-->
+<html><head><!-- Robots -->
+  <meta name="robots" content="index, follow" /><link rel="canonical" href="http://localhost:4000/blog/2020/03/05/structured-streaming-metrics.html" /><!-- Title, description, author --><title>Exposing Structured Streaming metrics from Spark | Miklos&#39;s blog - sc.parallelize(blogs)</title>
+  <meta name="description" content="A look at spark&#39;s metric system" />
+  <meta name="author" content="Miklos Szots" />
+  
+  <!-- Open Graph -->
+  <meta property="og:title" content="Exposing Structured Streaming metrics from Spark | Miklos&#39;s blog - sc.parallelize(blogs)" />
+  <meta property="og:type" content="website" />
+  <meta property="og:image" content="http://localhost:4000/blog/assets/img/avatar48.jpg" />
+  <meta property="og:url" content="http://localhost:4000/blog/2020/03/05/structured-streaming-metrics.html" />
+  <meta property="og:site_name" content="Miklos&#39;s blog" />
+  <meta property="og:description" content="A look at spark&#39;s metric system" />
+  
+  <!-- Styles -->
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!--[if lte IE 8]><script src="/blog/assets/js/ie/html5shiv.js" defer></script><![endif]-->
+  <link rel="stylesheet" href="/blog/assets/css/main.css" />
+  <!--[if lte IE 8]><link rel="stylesheet" href="/blog/assets/css/ie8.css" /><![endif]-->
+  <!--[if lte IE 9]><link rel="stylesheet" href="/blog/assets/css/ie9.css" /><![endif]-->
+  <link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.1.0/css/all.css">
+
+  <!-- Scripts -->
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.3/jquery.min.js" defer></script>
+  <script src="/blog/assets/js/jquery.scrolly.min.js" defer></script>
+  <script src="/blog/assets/js/jquery.scrollzer.min.js" defer></script>
+  <script src="/blog/assets/js/skel.min.js" defer></script>
+  <script src="/blog/assets/js/util.js" defer></script>
+  <!--[if lte IE 8]><script src="/blog/assets/js/ie/respond.min.js" defer></script><![endif]-->
+  <script src="/blog/assets/js/main.js" defer></script>
+
+</head><body><!-- Header -->
+<div id="header">
+  <div class="top"><!-- Logo -->
+<div id="logo">
+  <a href="http://localhost:4000/blog/" id="home-link">
+    <span class="image avatar48"><img src="/blog/assets/img/avatar48.jpg" alt="Avatar of Miklos Szots" /></span>
+    <h1 id="title">Miklos's blog</h1>
+    <p>sc.parallelize(blogs)</p>
+  </a>
+</div><!-- Nav -->
+<nav id="nav">
+  <ul><li><a href="http://localhost:4000/blog/" id="127-0-0-1-link">
+            <span class="icon fa-home">127.0.0.1</span>
+          </a></li><li><a href="http://localhost:4000/blog/blog.html" id="posts-link">
+            <span class="icon fa-pencil-alt">Posts</span>
+          </a></li><li><a href="http://localhost:4000/blog/about.html" id="about-link">
+            <span class="icon fa-link">About</span>
+          </a></li></ul>
+</nav></div>
+  <div class="bottom"><!-- Social Icons -->
+<ul class="icons"><li><a href="https://www.linkedin.com/in/miklosszots/" class="icon-b fa-linkedin-in"><span class="label">LinkedIn</span></a></li><li><a href="https://github.com/smiklos" class="icon-b fa-github"><span class="label">GitHub</span></a></li><li><a href="mailto:szotsmiklos@gmail.com" class="icon fa-envelope"><span class="label">Email</span></a></li></ul>
+</div>
+</div>
+<!-- Main -->
+<div id="main">
+	<!-- Post -->
+	<article class="shade-two">
+	  <div class="container">
+			<header>
+				<h2>Exposing Structured Streaming metrics from Spark</h2>
+				<p>05 March 2020</p>
+			</header><h3 id="spark-version-244">Spark version: 2.4.4</h3>
+
+<p>We will cover the following topics:</p>
+
+<ul>
+  <li>Enable and configure metric reporters for statsd</li>
+  <li>Enable metrics for structured streaming queries</li>
+  <li>Hack together a custom metrics source</li>
+</ul>
+
+<h1 id="the-problem">The problem</h1>
+
+<p>While spark exposes some metrics via api-s and other sinks, not all of them are turned on by default and there’s no built in support to include custom metrics.
+Spark 3.0 changes this thanks to <a href="https://github.com/apache/spark/pull/24901">this pr</a>.</p>
+
+<p>Many articles exist describing how we can extract info out of streaming queryies via an instance of <code class="language-plaintext highlighter-rouge">StreamingQueryListener</code>
+but I haven’t found any which talks about the built in support and don’t require hand rolled code.</p>
+
+<h2 id="enable-and-configure-metric-reporters-for-statsd">Enable and configure metric reporters for statsd</h2>
+
+<p>Let’s see what needs to be configured in order to enable metric reporting for built in metrics to a statsd server.</p>
+
+<p>First and foremost, we need to set up a namespace for the metrics, otherwise spark defaults to the random app id and that’s rarely what we want.</p>
+
+<p>There a several ways to configure a spark application, just a few possiblities:</p>
+
+<ol>
+  <li>via the default config file under <code class="language-plaintext highlighter-rouge">$SPARK_HOME/conf/spark-defaults.conf</code></li>
+  <li>as a config parameter passed to spark-submit, e.g.: <code class="language-plaintext highlighter-rouge">--conf spark.important.config.value=false</code></li>
+  <li>using the sparkContext’s or the SparkSession builder’s config method like <code class="language-plaintext highlighter-rouge">.config("spark.important.config.value", "false")</code></li>
+</ol>
+
+<p>Now the namespace is basically the prefix for every metric sent to statsd, so the easiest is to use our application name provided that we use a concise name without spaces.
+This step is optional, but I highly recommend it.</p>
+
+<div class="language-scala highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="o">.</span><span class="py">config</span><span class="o">(</span><span class="s">"spark.metrics.namespace"</span><span class="o">,</span> <span class="s">"my-app"</span><span class="o">)</span>
+</code></pre></div></div>
+<p>Then we need to configure the sinks. The config for them are loaded from a property file that can be found by default under:</p>
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>$SPARK_HOME/conf/metrics.properties
+</code></pre></div></div>
+
+<p>Alternatively we can point to another file with:</p>
+
+<div class="language-scala highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="o">.</span><span class="py">config</span><span class="o">(</span><span class="s">"spark.metrics.conf"</span><span class="o">,</span> <span class="s">"/home/centos/spark/config/metrics.properties"</span><span class="o">)</span>
+</code></pre></div></div>
+<p>To enable statsd, this is what the file should contain:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code># org.apache.spark.metrics.sink.StatsdSink
+#   Name:     Default:      Description:
+#   host      127.0.0.1     Hostname or IP of StatsD server
+#   port      8125          Port of StatsD server
+#   period    10            Poll period
+#   unit      seconds       Units of poll period
+#   prefix    EMPTY STRING  Prefix to prepend to metric name
+
+*.sink.statsd.class=org.apache.spark.metrics.sink.StatsdSink
+
+</code></pre></div></div>
+
+<p>This will enable all built in metrics except from metrics coming from structured streaming queries, so lets look at that next.</p>
+
+<h2 id="enable-metrics-for-structured-streaming-queries">Enable metrics for structured streaming queries</h2>
+
+<p>Lets start with yet another optional but in general recommended step, adding a queryName to the stream so it’s not a random UUID that we get but rather a constant name we can easily track across restarts.</p>
+
+<div class="language-scala highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nv">df</span><span class="o">.</span><span class="py">trigger</span><span class="o">(</span><span class="nv">Trigger</span><span class="o">.</span><span class="py">ProcessingTime</span><span class="o">(</span><span class="s">"5 seconds"</span><span class="o">))</span>
+        <span class="o">.</span><span class="py">option</span><span class="o">(</span><span class="s">"queryName"</span><span class="o">,</span> <span class="s">"important-query"</span><span class="o">)</span>
+        <span class="o">.</span><span class="py">start</span><span class="o">()</span>
+</code></pre></div></div>
+
+<p>After that, we just need to enable structured streaming metrics in via the following config:</p>
+
+<div class="language-scala highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="o">.</span><span class="py">config</span><span class="o">(</span><span class="s">"spark.sql.streaming.metricsEnabled"</span><span class="o">,</span> <span class="s">"true"</span><span class="o">)</span>
+</code></pre></div></div>
+<p>Now we can get streaming query metrics to statsd (or any other sink we configure).</p>
+
+<p>As I already mentioned, it’s not possible to extend spark’s metric system before version 3.0 so we need to use a bit of cheat to hook into it.</p>
+
+<h2 id="hack-together-a-custom-metrics-source">Hack together a custom metrics source</h2>
+
+<h3 id="while-the-following-definitely-works-take-it-as-an-optional-approach">While the following definitely works, take it as an optional approach</h3>
+
+<p>We need to implement and register an instance of the <code class="language-plaintext highlighter-rouge">Source</code> trait in the package <code class="language-plaintext highlighter-rouge">org.apache.spark.metrics.source</code>.
+Since this trait is package private, we have to put our implementation under the same package.</p>
+
+<div class="language-scala highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">package</span> <span class="nn">org.apache.spark.metrics.source</span>
+<span class="k">import</span> <span class="nn">com.codahale.metrics.MetricRegistry</span>
+<span class="k">import</span> <span class="nn">org.apache.spark.sql.SparkSession</span>
+
+<span class="k">class</span> <span class="nc">CustomAppMetrics</span> <span class="k">extends</span> <span class="nc">Source</span> <span class="o">{</span>
+  <span class="k">override</span> <span class="k">def</span> <span class="nf">sourceName</span><span class="k">:</span> <span class="kt">String</span> <span class="o">=</span> <span class="s">"custom"</span>
+
+  <span class="k">override</span> <span class="k">val</span> <span class="nv">metricRegistry</span><span class="k">:</span> <span class="kt">MetricRegistry</span> <span class="o">=</span> <span class="k">new</span> <span class="nc">MetricRegistry</span>
+
+  <span class="k">val</span> <span class="nv">customMetric</span> <span class="k">=</span> <span class="nv">metricRegistry</span><span class="o">.</span><span class="py">timer</span><span class="o">(</span><span class="nv">MetricRegistry</span><span class="o">.</span><span class="py">name</span><span class="o">(</span><span class="s">"custom-time"</span><span class="o">))</span>
+<span class="o">}</span>
+
+<span class="k">object</span> <span class="nc">CustomAppMetrics</span> <span class="o">{</span>
+
+  <span class="k">def</span> <span class="nf">register</span><span class="o">(</span><span class="n">sparkSession</span><span class="k">:</span> <span class="kt">SparkSession</span><span class="o">)</span> <span class="k">=</span> <span class="o">{</span>
+    <span class="k">val</span> <span class="nv">source</span> <span class="k">=</span> <span class="k">new</span> <span class="nc">CustomAppMetrics</span>
+    <span class="nv">sparkSession</span><span class="o">.</span><span class="py">sparkContext</span><span class="o">.</span><span class="py">env</span><span class="o">.</span><span class="py">metricsSystem</span>
+      <span class="o">.</span><span class="py">registerSource</span><span class="o">(</span><span class="n">source</span><span class="o">)</span>
+    <span class="n">source</span>
+  <span class="o">}</span>
+<span class="o">}</span>
+
+</code></pre></div></div>
+
+<p>I included a helper method to register and return the metric source instance in one go.</p>
+
+<p>Usage is simple when we are working with the driver but since spark doesn’t have any initialization phase we would need to register this instance on each worker by some spark job like</p>
+<div class="language-scala highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nv">sc</span><span class="o">.</span><span class="py">parallelize</span><span class="o">(</span><span class="mi">0</span> <span class="n">to</span> <span class="mi">100</span><span class="o">).</span><span class="py">forEach</span><span class="o">(</span><span class="n">register</span><span class="o">)</span>
+</code></pre></div></div>
+<p>Additionally, we need to have jetty-servlets on the compile class path for this to work…
+<code class="language-plaintext highlighter-rouge">"org.eclipse.jetty" % "jetty-servlets" % "9.4.6.v20180619" % "provided"</code></p>
+
+<p>Now we are ready to create more metrics and use them on the driver or workers or both and gain access to the built in reporting functionality of spark.</p>
+
+<p>Links:</p>
+
+<p><a href="https://spark.apache.org/docs/latest/monitoring.html">Monitoring guide</a></p>
+
+<p><a href="https://spark.apache.org/docs/latest/structured-streaming-programming-guide.html#reporting-metrics-using-dropwizard">Monitoring Streaming Queries</a></p>
+</div>
+	</article>
+</div><!-- Footer -->
+<div id="footer">
+  
+  <!-- Copyright -->
+  <ul class="copyright">
+    
+      <li>&copy;Miklos's blog. All rights reserved.</li>
+    
+    <li>Design: <a href="http://html5up.net">HTML5 UP</a></li>
+    <li>Jekyll integration: <a href="https://chrisbobbe.github.io/">Chris Bobbe</a></li>
+  </ul>
+  
+</div></body>
+</html>
