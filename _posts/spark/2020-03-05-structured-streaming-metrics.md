@@ -1,5 +1,5 @@
 ---
-layout: default
+layout: post
 title: Exposing Structured Streaming metrics from Spark
 description: A look at spark's metric system
 tags: [spark, metrics]

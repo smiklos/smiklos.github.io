@@ -1,8 +1,9 @@
 ---
-layout: default
+layout: post
 title: Spark UDF vs sql expressions
 description: Performance characteristics and nullability when working with UDFs
 ---
+
 
 1. Introduction to spark udf and expressions
 2. spark internal storage format ints, utf8, unsafe
