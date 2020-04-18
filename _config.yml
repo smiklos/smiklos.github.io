@@ -37,7 +37,7 @@ description: >-
   but trying to keep it entertaining and consumable for the wider audience
 author: Miklos Szots
 email: szotsmiklos@gmail.com
-avatar: assets/img/avatar48.jpg
+avatar: assets/img/avatar.jpg
 
 # You'll want to customize url and baseurl for your own site:
 baseurl: "" # the subpath of your site, e.g. /blog
